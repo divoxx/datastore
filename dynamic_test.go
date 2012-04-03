@@ -8,7 +8,7 @@ import (
 
 const (
 	StoreFile = "store/dynamic.db"
-	BlockSize = 512
+	BlockSize = 1024
 
 	LoremData = `
 		Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod

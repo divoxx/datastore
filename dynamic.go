@@ -1,10 +1,8 @@
 package datastore
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
-	"io"
 	"log"
 	"os"
 )
@@ -34,7 +32,6 @@ type blockType struct {
 	Flags  uint8
 	Length uint16
 	Next   uint32
-	Data   [456]byte
 }
 
 func NewDynamicStore(path string, blockSize uint16) (store *DynamicStore) {
@@ -44,10 +41,11 @@ func NewDynamicStore(path string, blockSize uint16) (store *DynamicStore) {
 
 func (store *DynamicStore) Write(data []byte) (uint32, error) {
 	var prev *blockType
-	buffer := bytes.NewBuffer(data)
 
 	id, offset := store.nextBlock()
+
 	blockId := id
+	blockNum := 0
 
 	if err := store.open(); err != nil {
 		return 0, err
@@ -58,38 +56,63 @@ func (store *DynamicStore) Write(data []byte) (uint32, error) {
 	for {
 		block := store.newBlock()
 
-		length, err := buffer.Read(block.Data[:])
-		if err == io.EOF {
-			break
-		}
+		chunk, last := store.readDataChunk(data, blockNum)
 
-		block.Length = uint16(length)
+		block.Length = uint16(len(chunk))
 
 		if prev != nil {
 			prev.Next = blockId
 		}
 
 		// We defer to after the method cause only then all previous ref will be set
-		defer store.writeBlock(blockId, offset, block)
+		defer store.writeBlock(blockId, offset, block, chunk)
+
+		if last {
+			break
+		}
 
 		prev = block
 		blockId, offset = store.nextBlock()
+		blockNum += 1
 	}
 
 	return id, nil
 }
 
-func (store *DynamicStore) writeBlock(id uint32, offset int64, block *blockType) {
+func (store *DynamicStore) writeBlock(id uint32, offset int64, block *blockType, chunk []byte) {
+	var err error
+
 	store.log("Writing block #%d to disk: %v", id, block)
 
 	store.fd.Seek(offset, os.SEEK_SET)
 
-	if err := binary.Write(store.fd, byteOrder, block); err != nil {
+	if err = binary.Write(store.fd, byteOrder, block); err != nil {
+		panic(err)
+	}
+
+	if _, err = store.fd.Write(chunk); err != nil {
 		panic(err)
 	}
 }
 
+func (store *DynamicStore) readDataChunk(data []byte, num int) ([]byte, bool) {
+	var last bool
+
+	chunkSize := int(store.blockSize) - 56
+	start := num * chunkSize
+	end := start + chunkSize
+
+	if end > len(data) {
+		last = true
+		end = len(data)
+	}
+
+	return data[start:end], last
+}
+
 func (store *DynamicStore) Read(slot_id uint32) ([]byte, error) {
+	var err error
+
 	block_id := slot_id
 	data := make([]byte, 0)
 
@@ -106,7 +129,7 @@ func (store *DynamicStore) Read(slot_id uint32) ([]byte, error) {
 
 		store.fd.Seek(offset, os.SEEK_SET)
 
-		if err := binary.Read(store.fd, byteOrder, block); err != nil {
+		if err = binary.Read(store.fd, byteOrder, block); err != nil {
 			return nil, err
 		}
 
@@ -117,7 +140,12 @@ func (store *DynamicStore) Read(slot_id uint32) ([]byte, error) {
 			return nil, err
 		}
 
-		data = append(data, block.Data[:block.Length]...)
+		chunk := make([]byte, block.Length)
+		if _, err = store.fd.Read(chunk); err != nil {
+			return nil, err
+		}
+
+		data = append(data, chunk...)
 
 		if block.Next == 0 {
 			break
@@ -171,6 +199,8 @@ func (store *DynamicStore) close() error {
 
 func (store *DynamicStore) log(data ...interface{}) {
 	if store.debugMode {
-		log.Print(data...)
+		if str, ok := data[0].(string); ok {
+			log.Printf(str, data[1:]...)
+		}
 	}
 }
