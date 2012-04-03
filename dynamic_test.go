@@ -8,6 +8,7 @@ import (
 
 const (
 	StoreFile = "store/dynamic.db"
+	BlockSize = 512
 
 	LoremData = `
 		Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
@@ -95,7 +96,7 @@ func clearFile() {
 
 func TestBasicWriteAndRead(t *testing.T) {
 	clearFile()
-	store := NewDynamicStore(StoreFile)
+	store := NewDynamicStore(StoreFile, BlockSize)
 
 	data := []byte(LoremData)
 
@@ -112,14 +113,14 @@ func TestBasicWriteAndRead(t *testing.T) {
 	}
 
 	if !bytes.Equal(read, data) {
-		t.Errorf("Read/Write don't match.\nWritten: %v\nRead: %v\n", data, read)
+		t.Error("Read/Write don't match.")
 	}
 }
 
 func BenchmarkWrite(b *testing.B) {
 	b.StopTimer()
 	clearFile()
-	store := NewDynamicStore(StoreFile)
+	store := NewDynamicStore(StoreFile, BlockSize)
 	data := []byte(LoremData)
 	b.StartTimer()
 	store.Write(data)
@@ -128,7 +129,7 @@ func BenchmarkWrite(b *testing.B) {
 func BenchmarkRead(b *testing.B) {
 	b.StopTimer()
 	clearFile()
-	store := NewDynamicStore(StoreFile)
+	store := NewDynamicStore(StoreFile, BlockSize)
 	data := []byte(LoremData)
 	slot, _ := store.Write(data)
 	b.StartTimer()
