@@ -15,7 +15,9 @@ const (
 )
 
 // Hold real, binary data, decoded from testDataBase64
-var testData []byte
+var (
+	testData []byte
+)
 
 func init() {
 	testData = make([]byte, base64.StdEncoding.DecodedLen(len(testDataBase64)))
@@ -26,43 +28,35 @@ func testCleanUp() {
 	os.Remove(testFile)
 }
 
-func TestSequentialWriteAndRead(t *testing.T) {
+func TestSeqPersistAndRetrieve(t *testing.T) {
 	defer testCleanUp()
 
-	var (
-		store *FileStore
-		err   error
-		id    Id
-		data  []byte
-	)
-
-	if store, err = NewFileStore(testFile); err != nil {
+	store, err := NewFileStore(testFile)
+	if err != nil {
 		t.Error("Could not create file store")
 	}
 
-	if id, err = store.Write(testData); err != nil {
+	id, err := store.Persist(testData)
+	if err != nil {
 		t.Error("Could not write data to store")
 	}
 
-	if data, err = store.Read(id); err != nil {
+	data, err := store.Retrieve(id)
+	if err != nil {
 		t.Error("Could not read data from store")
 	}
 
 	if !bytes.Equal(data, testData) {
-		t.Error("Written/Read data doesn't match")
+		t.Error("Persisted/Retrieved data doesn't match")
 	}
 }
 
-func BenchmarkReadsAndWrite(b *testing.B) {
-	// defer testCleanUp()
+func BenchmarkPersist(b *testing.B) {
+	defer testCleanUp()
 
-	var (
-		store *FileStore
-	)
-
-	store, _ = NewFileStore(testFile)
+	store, _ := NewFileStore(testFile)
 
 	for i := 0; i < b.N; i++ {
-		store.Write(testData)
+		store.Persist(testData)
 	}
 }

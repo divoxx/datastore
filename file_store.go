@@ -10,11 +10,11 @@ import (
 	"syscall"
 )
 
-type Flag uint8
+type flag uint8
 
 const (
-	FlagUsed Flag = 1 << iota
-	FlagLast
+	flagUsed flag = 1 << iota
+	flagLast
 )
 
 const (
@@ -25,16 +25,16 @@ const (
 
 const (
 	blockSize = 512
-	dataSize  = 456
+	dataSize  = 488
 )
 
 type blockHeader struct {
-	Flags  Flag
+	Flags  flag
 	Len    uint16
 	NextId Id
 }
 
-type FileStore struct {
+type fileStore struct {
 	path    string
 	fd      *os.File
 	fdMtx   sync.Mutex
@@ -42,24 +42,18 @@ type FileStore struct {
 	freeMtx sync.Mutex
 }
 
-func NewFileStore(path string) (*FileStore, error) {
-	var (
-		store *FileStore
-		err   error
-	)
+func NewFileStore(path string) (Store, error) {
+	fd, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE|os.O_SYNC, 0600)
 
-	store = new(FileStore)
-
-	if store.fd, err = os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE|os.O_SYNC, 0600); err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("Can't open database file: %s", err.Error())
 	}
 
-	store.free = list.New()
-
-	return store, nil
+	store := &fileStore{path: path, fd: fd, free: list.New()}
+	return Store(store), nil
 }
 
-func (store *FileStore) Write(data []byte) (Id, error) {
+func (store *fileStore) Persist(data []byte) (Id, error) {
 	var (
 		id          Id
 		err         error
@@ -88,11 +82,11 @@ func (store *FileStore) Write(data []byte) (Id, error) {
 			r = l + dataSize
 		}
 
-		header.Flags = FlagUsed
+		header.Flags = flagUsed
 		header.Len = uint16(r - l)
 
 		if i == 0 {
-			header.Flags |= FlagLast
+			header.Flags |= flagLast
 		} else {
 			header.NextId = id
 		}
@@ -104,7 +98,8 @@ func (store *FileStore) Write(data []byte) (Id, error) {
 		buffer = bytes.NewBuffer(memSlice[:0])
 
 		binary.Write(buffer, binary.BigEndian, header)
-		binary.Write(buffer, binary.BigEndian, data[l:r])
+		buffer.Write(data[l:r])
+		// binary.Write(buffer, binary.BigEndian, data[l:r])
 
 		store.releaseBlock(memSlice)
 	}
@@ -112,7 +107,7 @@ func (store *FileStore) Write(data []byte) (Id, error) {
 	return id, nil
 }
 
-func (store *FileStore) Read(id Id) ([]byte, error) {
+func (store *fileStore) Retrieve(id Id) ([]byte, error) {
 	var (
 		err  error
 		data []byte
@@ -140,7 +135,7 @@ func (store *FileStore) Read(id Id) ([]byte, error) {
 
 		store.releaseBlock(memSlice)
 
-		if header.Flags&FlagLast > 0 {
+		if header.Flags&flagLast > 0 {
 			break
 		} else {
 			id = header.NextId
@@ -150,7 +145,7 @@ func (store *FileStore) Read(id Id) ([]byte, error) {
 	return data, nil
 }
 
-func (store *FileStore) acquireNewBlock() (Id, []byte, error) {
+func (store *fileStore) acquireNewBlock() (Id, []byte, error) {
 	var (
 		err      error
 		fileInfo os.FileInfo
@@ -184,11 +179,11 @@ func (store *FileStore) acquireNewBlock() (Id, []byte, error) {
 	return id, memSlice, err
 }
 
-func (store *FileStore) acquireBlock(id Id) ([]byte, error) {
+func (store *fileStore) acquireBlock(id Id) ([]byte, error) {
 	memSlice, err := syscall.Mmap(int(store.fd.Fd()), int64(id)*blockSize, blockSize, syscallProtRead|syscallProtWrite, syscallFlagShared)
 	return memSlice, err
 }
 
-func (store *FileStore) releaseBlock(memSlice []byte) error {
+func (store *fileStore) releaseBlock(memSlice []byte) error {
 	return syscall.Munmap(memSlice)
 }
