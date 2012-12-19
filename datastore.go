@@ -16,19 +16,9 @@ type Store interface {
 	Retrieve(Id) ([]byte, error)
 }
 
-// offset represents a byte offset for the underlying storage. Id's gets translated
-// to offsets by the storage engine.
-type _offset uint64
-
-// buffer represents a continuous space in the underlying storage.
-type _buffer struct {
-	exist bool
-	data  []byte
-}
-
 // Manage buffers for access to the underlying storage, making sure it respect
 // memory constraints and efficiently read/write data.
-type _bufferManager interface {
-	Acquire(_offset) (_buffer, error)
-	Release(_buffer) error
+type BufferManager interface {
+	Acquire(offset, length int64) ([]byte, error)
+	Release([]byte) error
 }
